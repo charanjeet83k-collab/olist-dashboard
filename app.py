@@ -15,9 +15,8 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 st.set_page_config(page_title="Olist E-Commerce Dashboard", page_icon="🛒", layout="wide")
-
-   BASE = Path(__file__).parent
-   DATA = BASE / "data" if (BASE / "data").exists() else BASE
+BASE = Path(__file__).parent
+DATA = BASE / "data" if (BASE / "data").exists() else BASE
 
 # ---- Theme (taken from the Power BI theme "Olist Teal Light") ----
 TEAL, AMBER, GREY, LTEAL, RED = "#348E90", "#D98E1F", "#6B6B6B", "#7FC1C2", "#B84A3E"
