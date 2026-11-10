@@ -37,8 +37,15 @@ BG = "#EEF2F6"
 CARD_BORDER, CARD_LABEL, CARD_VALUE = "#D5DEE6", "#07566B", "#123B46"
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-PAGES = ["Home", "Executive Sales Overview", "Sales & Products",
-         "Customer and Reviews", "Delivery and Logistics", "Payment & Geography"]
+PAGES = [
+    "Home",
+    "Executive Sales Overview",
+    "Sales & Products",
+    "Customer and Reviews",
+    "Delivery and Logistics",
+    "Payment & Geography",
+    "Predictive Model"
+]
 
 st.markdown(f"""
 <style>
