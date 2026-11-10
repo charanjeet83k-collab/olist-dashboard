@@ -1,8 +1,16 @@
 """
 Olist E-Commerce Dashboard - Streamlit version of the Power BI report.
-PAGES = ["Home", "Executive Sales Overview", "Sales & Products",
-         "Customer and Reviews", "Delivery and Logistics",
-         "Payment & Geography", "Predictive Model"]
+
+PAGES = [
+    "Home",
+    "Executive Sales Overview",
+    "Sales & Products",
+    "Customer and Reviews",
+    "Delivery and Logistics",
+    "Payment & Geography",
+    "Predictive Model"
+]
+
 Measure logic mirrors the DAX in the .pbix file (see README.md for details).
 """
 import json
