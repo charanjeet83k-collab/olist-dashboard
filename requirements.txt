@@ -3,3 +3,4 @@ pandas>=2.1
 numpy
 plotly>=5.20
 pyarrow
+scikit-learn
