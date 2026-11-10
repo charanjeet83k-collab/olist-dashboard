@@ -1,7 +1,8 @@
 """
 Olist E-Commerce Dashboard - Streamlit version of the Power BI report.
-Pages: Home, Executive Sales Overview, Sales & Products, Customer and Reviews,
-       Delivery and Logistics, Payment & Geography.
+PAGES = ["Home", "Executive Sales Overview", "Sales & Products",
+         "Customer and Reviews", "Delivery and Logistics",
+         "Payment & Geography", "Predictive Model"]
 Measure logic mirrors the DAX in the .pbix file (see README.md for details).
 """
 import json
@@ -15,6 +16,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 st.set_page_config(page_title="Olist E-Commerce Dashboard", page_icon="🛒", layout="wide")
+
 BASE = Path(__file__).parent
 DATA = BASE / "data" if (BASE / "data").exists() else BASE
 
@@ -194,17 +196,73 @@ YEARS = [2016, 2017, 2018]
 
 
 # ================================================================== HOME
+# ================================================================== HOME
 def page_home():
-    st.markdown('<div class="home-title">Brazilian E-Commerce Sales &amp; Customer Insights</div>',
-                unsafe_allow_html=True)
-    cols = st.columns(5)
-    labels = ["Executive Sales Overview", "Sales & Product", "Customer and Reviews",
-              "Delivery and Logistics", "Payment & Geography"]
-    for c, lab, pg in zip(cols, labels, PAGES[1:]):
-        with c:
-            st.button(lab, key=f"h_{pg}", on_click=goto, args=(pg,), width="stretch")
-    st.caption("Source: Olist Brazilian e-commerce dataset (orders 2016-09 to 2018-10).")
+    st.markdown(
+        '<div class="home-title">Brazilian E-Commerce Sales &amp; Customer Insights</div>',
+        unsafe_allow_html=True
+    )
 
+    st.markdown("""
+    ## Welcome to the Olist Analytics Dashboard
+
+    ### About Olist
+
+    Olist is a Brazilian e-commerce marketplace that connects
+    independent sellers with customers. Sellers use the Olist
+    platform to sell products online, while customers can shop
+    from different stores through one marketplace.
+
+    This dashboard explores the public **Olist Brazilian
+    E-Commerce dataset**, covering orders placed between
+    September 2016 and October 2018.
+
+    ### What does this dashboard analyse?
+
+    - **Sales and revenue:** Sales trends, products and categories.
+    - **Customers:** Customer locations and repeat purchases.
+    - **Reviews:** Customer satisfaction and review scores.
+    - **Delivery:** Delivery times and late-delivery performance.
+    - **Payments:** Payment methods and instalments.
+    - **Geography:** Sales and customer activity across Brazilian states.
+
+    ### Predictive Analytics
+
+    The Predictive Model page uses historical delivered orders
+    to estimate the probability of an order being delivered late.
+    It also includes a what-if calculator to explore how order
+    characteristics can affect estimated delivery risk.
+
+    ### About the dataset
+
+    The analysis uses Olist order, order-item, payment, customer,
+    seller, product, review and geolocation information.
+    """)
+
+    st.info(
+        "Use the navigation buttons below to explore each part "
+        "of the Olist business analysis."
+    )
+
+    cols = st.columns(3)
+    labels = [
+        "Executive Sales Overview",
+        "Sales & Products",
+        "Customer and Reviews",
+        "Delivery and Logistics",
+        "Payment & Geography",
+        "Predictive Model"
+    ]
+
+    for i, (c, lab, pg) in enumerate(zip(cols * 2, labels, PAGES[1:])):
+        with c:
+            st.button(
+                lab,
+                key=f"h_{pg}",
+                on_click=goto,
+                args=(pg,),
+                width="stretch"
+            )
 
 # ================================================================== EXECUTIVE
 def page_exec():
@@ -466,14 +524,251 @@ def page_payment():
                 fig = go.Figure(go.Bar(x=t.values, y=t.index, orientation="h", marker_color=TEAL))
                 show(style(fig, "Top 10 Cities by Orders", 300))
 
+#---------------------------------------------------------------------------
+# ================================================================== PREDICTIVE MODEL
 
+@st.cache_resource
+def fit_late_delivery_model(data):
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
+
+    df = data.copy()
+
+    # Create peak-month feature
+    if "month_num" in df.columns:
+        df["peak_month"] = df["month_num"].isin([2, 3, 11]).astype(int)
+
+    # Use only features actually available in orders.parquet
+    candidates = [
+        "distance_km",
+        "same_state",
+        "estimated_days",
+        "n_items",
+        "item_sales",
+        "freight",
+        "freight_value",
+        "peak_month"
+    ]
+
+    features = [c for c in candidates if c in df.columns]
+
+    if len(features) < 2:
+        return None, features, None, (
+            "Not enough model features were found in orders.parquet. "
+            "Check whether distance_km, estimated_days, n_items, "
+            "item_sales or freight are available."
+        )
+
+    if "valid_delivery" not in df.columns or "is_late" not in df.columns:
+        return None, features, None, (
+            "The dataset must contain valid_delivery and is_late columns."
+        )
+
+    df = df[
+        (df["valid_delivery"] == 1) &
+        (df["is_late"].notna())
+    ].copy()
+
+    for col in features:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["is_late"])
+
+    X = df[features]
+    y = df["is_late"].astype(int)
+
+    if len(df) < 20 or y.nunique() < 2:
+        return None, features, None, (
+            "There is not enough historical delivery data "
+            "or the target contains only one class."
+        )
+
+    model = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler()),
+        ("classifier", LogisticRegression(max_iter=2000))
+    ])
+
+    model.fit(X, y)
+
+    return model, features, df, None
+
+
+def page_predictive():
+    topbar("Predictive Model – Late Delivery Risk")
+
+    st.markdown("""
+    This page uses a Logistic Regression model trained on historical
+    delivered Olist orders to estimate the probability of late delivery.
+
+    A higher predicted probability indicates a higher estimated
+    risk of late delivery.
+    """)
+
+    model, features, training_data, error = fit_late_delivery_model(orders)
+
+    if error:
+        st.error(error)
+        st.write("Available columns in your orders dataset:")
+        st.write(list(orders.columns))
+        return
+
+    total = len(training_data)
+    late_rate = training_data["is_late"].mean()
+
+    kpi_row([
+        ("Training Orders", f"{total:,}"),
+        ("Historical Late Rate", pct(late_rate)),
+        ("Model Features", f"{len(features)}")
+    ])
+
+    st.markdown("### 1. Predicted vs Actual Late Delivery Risk")
+
+    predicted = model.predict_proba(
+        training_data[features]
+    )[:, 1]
+
+    risk_data = pd.DataFrame({
+        "Predicted Risk": predicted,
+        "Actual Late": training_data["is_late"].values
+    })
+
+    risk_data["Risk Group"] = pd.qcut(
+        risk_data["Predicted Risk"].rank(method="first"),
+        5,
+        labels=["Very Low", "Low", "Medium", "High", "Very High"]
+    )
+
+    risk_summary = (
+        risk_data.groupby("Risk Group", observed=False)
+        .agg(
+            Predicted_Risk=("Predicted Risk", "mean"),
+            Actual_Late_Rate=("Actual Late", "mean"),
+            Orders=("Actual Late", "size")
+        )
+        .reset_index()
+    )
+
+    fig = go.Figure()
+
+    fig.add_bar(
+        x=risk_summary["Risk Group"],
+        y=risk_summary["Predicted_Risk"],
+        name="Average Predicted Risk",
+        marker_color=TEAL
+    )
+
+    fig.add_scatter(
+        x=risk_summary["Risk Group"],
+        y=risk_summary["Actual_Late_Rate"],
+        name="Actual Late Rate",
+        mode="lines+markers",
+        line=dict(color=AMBER, width=3)
+    )
+
+    fig.update_yaxes(tickformat=".0%")
+    show(style(fig, "Predicted Risk vs Actual Late Rate", 350, legend=True))
+
+    st.dataframe(
+        risk_summary.style.format({
+            "Predicted_Risk": "{:.2%}",
+            "Actual_Late_Rate": "{:.2%}",
+            "Orders": "{:,.0f}"
+        }),
+        width="stretch",
+        hide_index=True
+    )
+
+    st.markdown("### 2. Factors Influencing Late Delivery")
+
+    coefficients = model.named_steps["classifier"].coef_[0]
+
+    odds = pd.DataFrame({
+        "Feature": features,
+        "Odds Ratio": np.exp(coefficients)
+    }).sort_values("Odds Ratio", ascending=False)
+
+    fig = px.bar(
+        odds,
+        x="Odds Ratio",
+        y="Feature",
+        orientation="h",
+        color="Odds Ratio",
+        color_continuous_scale=["#7FC1C2", TEAL, "#B84A3E"]
+    )
+
+    show(style(fig, "Model Feature Odds Ratios", 350))
+
+    st.caption(
+        "Odds ratios above 1 indicate an association with higher late-delivery "
+        "odds; below 1 indicate an association with lower odds. "
+        "These are model associations, not proof of causation."
+    )
+
+    st.markdown("### 3. What-if Late Delivery Calculator")
+
+    st.write(
+        "Change the feature values below to estimate the late-delivery "
+        "risk for a hypothetical order."
+    )
+
+    values = {}
+
+    col1, col2 = st.columns(2)
+
+    for i, feature in enumerate(features):
+        series = training_data[feature].dropna()
+
+        if series.empty:
+            values[feature] = 0
+            continue
+
+        median = float(series.median())
+        minimum = float(series.min())
+        maximum = float(series.max())
+        step = max((maximum - minimum) / 100, 0.01)
+
+        container = col1 if i % 2 == 0 else col2
+
+        with container:
+            values[feature] = st.number_input(
+                feature.replace("_", " ").title(),
+                min_value=minimum,
+                max_value=maximum,
+                value=median,
+                step=step,
+                key=f"predict_{feature}"
+            )
+
+    input_df = pd.DataFrame([values], columns=features)
+    risk = model.predict_proba(input_df)[0, 1]
+
+    st.metric("Estimated Late Delivery Probability", f"{risk:.2%}")
+
+    if risk >= 0.70:
+        st.error("High estimated late-delivery risk.")
+    elif risk >= 0.40:
+        st.warning("Moderate estimated late-delivery risk.")
+    else:
+        st.success("Low estimated late-delivery risk.")
+
+    st.info(
+        "Model limitation: This model is trained on historical delivered "
+        "orders. It is an exploratory model, not a production-validated "
+        "forecast. It has not been evaluated on a separate test dataset."
+    )
 # ------------------------------------------------------------------ router
 if "page" not in st.session_state:
     st.session_state["page"] = "Home"
 
-{"Home": page_home,
- "Executive Sales Overview": page_exec,
- "Sales & Products": page_sales,
- "Customer and Reviews": page_customer,
- "Delivery and Logistics": page_delivery,
- "Payment & Geography": page_payment}[st.session_state["page"]]()
+{
+    "Home": page_home,
+    "Executive Sales Overview": page_exec,
+    "Sales & Products": page_sales,
+    "Customer and Reviews": page_customer,
+    "Delivery and Logistics": page_delivery,
+    "Payment & Geography": page_payment,
+    "Predictive Model": page_predictive
+}[st.session_state["page"]]()
